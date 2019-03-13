@@ -15,10 +15,13 @@
  */
 package io.jboot.db.model;
 
+import io.jboot.db.dialect.JbootMysqlDialect;
+import io.jboot.db.dialect.JbootSqlServerDialect;
 import io.jboot.utils.StrUtil;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -180,12 +183,22 @@ public class Columns implements Serializable {
     }
 
 
+    /**
+     *  IS NULL
+     * @param name
+     * @return
+     */
     public Columns is_null(String name) {
         this.add(Column.create(name, null, Column.LOGIC_IS_NULL));
         return this;
     }
 
 
+    /**
+     * IS NOT NULL
+     * @param name
+     * @return
+     */
     public Columns is_not_null(String name) {
         this.add(Column.create(name, null, Column.LOGIC_IS_NOT_NULL));
         return this;
@@ -194,6 +207,18 @@ public class Columns implements Serializable {
 
     public Columns or() {
         this.add(new Or());
+        return this;
+    }
+
+
+    public Columns in(String name, Object... arrays) {
+        this.add(Column.create(name, arrays, Column.LOGIC_IN));
+        return this;
+    }
+
+
+    public Columns between(String name, Object start, Object end) {
+        this.add(Column.create(name, new Object[]{start, end}, Column.LOGIC_BETWEEN));
         return this;
     }
 
@@ -208,12 +233,20 @@ public class Columns implements Serializable {
     public Object[] getValueArray() {
 
         if (isEmpty()) {
-            return null;
+            return NULL_PARA_ARRAY;
         }
 
         List<Object> values = new LinkedList<>();
+
         for (Column column : cols) {
-            if (column.getValue() != null) values.add(column.getValue());
+            Object value = column.getValue();
+            if (value == null) continue;
+            if (value.getClass().isArray()) {
+                Object[] vs = (Object[]) value;
+                for (Object v : vs) values.add(v);
+            } else {
+                values.add(value);
+            }
         }
 
         return values.isEmpty() ? NULL_PARA_ARRAY : values.toArray();
@@ -229,8 +262,6 @@ public class Columns implements Serializable {
         if (isEmpty()) return null;
 
         List<Column> columns = new ArrayList<>(cols);
-//        columns.sort(Comparator.comparing(Column::getName));
-
         StringBuilder s = new StringBuilder();
         for (Column column : columns) {
             if (column instanceof Or) {
@@ -240,7 +271,10 @@ public class Columns implements Serializable {
             s.append(column.getName()).append("-")
                     .append(getLogicStr(column.getLogic())).append("-");
             Object value = column.getValue();
-            if (value != null) s.append(column.getValue()).append("-");
+            if (value == null) continue;
+            if (value.getClass().isArray()) s.append(Arrays.toString((Object[]) column.getValue()));
+            else s.append(column.getValue());
+            s.append("-");
         }
 
         return s.deleteCharAt(s.length() - 1).toString();
@@ -271,9 +305,28 @@ public class Columns implements Serializable {
                 return "isn";
             case Column.LOGIC_IS_NOT_NULL:
                 return "nn";
+            case Column.LOGIC_IN:
+                return "in";
+            case Column.LOGIC_BETWEEN:
+                return "bt";
             default:
                 return "";
         }
+    }
+
+    /**
+     * 这个只是用于调试
+     *
+     * @return
+     */
+    public String toMysqlSql() {
+        JbootMysqlDialect dialect = new JbootMysqlDialect();
+        return dialect.forFindByColumns("table", "*", getList(), null, null);
+    }
+
+    public String toSqlServerSql() {
+        JbootSqlServerDialect dialect = new JbootSqlServerDialect();
+        return dialect.forFindByColumns("table", "*", getList(), null, null);
     }
 
 
@@ -295,6 +348,18 @@ public class Columns implements Serializable {
 
         columns.is_null("nickname");
         System.out.println(columns.getCacheKey());
+        columns.or();
+
+        columns.in("name", "123", "123", "111");
+        System.out.println(columns.getCacheKey());
+        columns.or();
+
+        columns.between("name", "123", "1233");
+        System.out.println(columns.getCacheKey());
+
+        System.out.println(Arrays.toString(columns.getValueArray()));
+        System.out.println(columns.toMysqlSql());
+        System.out.println(columns.toSqlServerSql());
     }
 
 }

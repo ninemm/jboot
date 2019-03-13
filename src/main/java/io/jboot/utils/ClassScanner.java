@@ -16,7 +16,6 @@
 package io.jboot.utils;
 
 import io.jboot.app.config.JbootConfigManager;
-import io.jboot.app.config.annotation.ConfigModel;
 
 import java.io.File;
 import java.io.IOException;
@@ -28,14 +27,11 @@ import java.net.URLDecoder;
 import java.util.*;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
+import java.util.stream.Collectors;
 
-/**
- * 类扫描器
- */
 public class ClassScanner {
 
-    private static Config config = JbootConfigManager.me().get(Config.class);
-    private static final Set<Class> appClasses = new HashSet<>();
+    private static final Set<Class> applicationClassCache = new HashSet<>();
     public static final Set<String> includeJars = new HashSet<>();
     public static final Set<String> excludeJars = new HashSet<>();
 
@@ -184,11 +180,14 @@ public class ClassScanner {
     }
 
     static {
-        for (String prefix : config.getScanJarPrefixes()) {
-            addScanJarPrefix(prefix);
+        String scanJarPrefx = JbootConfigManager.me().getConfigValue("jboot.app.scanner.scanJarPrefix");
+        if (scanJarPrefx != null) {
+            for (String prefix : scanJarPrefx.split(",")) addScanJarPrefix(prefix);
         }
-        for (String prefix : config.getUnScanJarPrefixes()) {
-            addUnscanJarPrefix(prefix);
+
+        String unScanJarPrefix = JbootConfigManager.me().getConfigValue("jboot.app.scanner.unScanJarPrefix");
+        if (unScanJarPrefix != null) {
+            for (String prefix : unScanJarPrefix.split(",")) addUnscanJarPrefix(prefix);
         }
     }
 
@@ -197,10 +196,10 @@ public class ClassScanner {
     }
 
 
-    public static <T> List<Class<T>> scanSubClass(Class<T> pclazz, boolean mustCanNewInstance) {
+    public static <T> List<Class<T>> scanSubClass(Class<T> pclazz, boolean isInstantiable) {
         initIfNecessary();
         List<Class<T>> classes = new ArrayList<>();
-        findClassesByParent(classes, pclazz, mustCanNewInstance);
+        findChildClasses(classes, pclazz, isInstantiable);
         return classes;
     }
 
@@ -208,41 +207,37 @@ public class ClassScanner {
         return scanClass(false);
     }
 
-    public static List<Class> scanClass(boolean mustCanNewInstance) {
+    public static List<Class> scanClass(boolean isInstantiable) {
 
         initIfNecessary();
 
-        if (!mustCanNewInstance) {
-            return new ArrayList<>(appClasses);
+        if (!isInstantiable) {
+            return new ArrayList<>(applicationClassCache);
         }
 
-        List<Class> list = new ArrayList<>();
-        for (Class clazz : appClasses) {
-            if (canNewInstance(clazz)) {
-                list.add(clazz);
-            }
-        }
+        return applicationClassCache.stream()
+                .filter(ClassScanner::isInstantiable)
+                .collect(Collectors.toList());
 
-        return list;
     }
 
 
-    private static boolean canNewInstance(Class clazz) {
+    private static boolean isInstantiable(Class clazz) {
         return !clazz.isInterface() && !Modifier.isAbstract(clazz.getModifiers());
     }
 
 
-    public static List<Class> scanClassByAnnotation(Class annotationClass, boolean mustCanNewInstance) {
+    public static List<Class> scanClassByAnnotation(Class annotationClass, boolean isInstantiable) {
         initIfNecessary();
 
         List<Class> list = new ArrayList<>();
-        for (Class clazz : appClasses) {
+        for (Class clazz : applicationClassCache) {
             Annotation annotation = clazz.getAnnotation(annotationClass);
             if (annotation == null) {
                 continue;
             }
 
-            if (mustCanNewInstance && !canNewInstance(clazz)) {
+            if (isInstantiable && !isInstantiable(clazz)) {
                 continue;
             }
 
@@ -253,20 +248,20 @@ public class ClassScanner {
     }
 
     private static void initIfNecessary() {
-        if (appClasses.isEmpty()) {
+        if (applicationClassCache.isEmpty()) {
             initAppClasses();
         }
     }
 
 
-    private static <T> void findClassesByParent(List<Class<T>> classes, Class<T> pclazz, boolean mustCanNewInstance) {
-        for (Class clazz : appClasses) {
+    private static <T> void findChildClasses(List<Class<T>> classes, Class<T> parent, boolean isInstantiable) {
+        for (Class clazz : applicationClassCache) {
 
-            if (!pclazz.isAssignableFrom(clazz)) {
+            if (!parent.isAssignableFrom(clazz)) {
                 continue;
             }
 
-            if (mustCanNewInstance && !canNewInstance(clazz)) {
+            if (isInstantiable && !isInstantiable(clazz)) {
                 continue;
             }
 
@@ -339,7 +334,7 @@ public class ClassScanner {
     }
 
     private static void addClass(Class clazz) {
-        if (clazz != null) appClasses.add(clazz);
+        if (clazz != null) applicationClassCache.add(clazz);
     }
 
 
@@ -448,48 +443,5 @@ public class ClassScanner {
         }
         return javaHome;
     }
-
-    @ConfigModel(prefix = "jboot.app.scanner")
-    public static class Config {
-
-        private String scanJarPrefix;
-        private String unScanJarPrefix;
-
-        public String getScanJarPrefix() {
-            return scanJarPrefix;
-        }
-
-        public void setScanJarPrefix(String scanJarPrefix) {
-            this.scanJarPrefix = scanJarPrefix;
-        }
-
-        public String getUnScanJarPrefix() {
-            return unScanJarPrefix;
-        }
-
-        public void setUnScanJarPrefix(String unScanJarPrefix) {
-            this.unScanJarPrefix = unScanJarPrefix;
-        }
-
-        public List<String> getScanJarPrefixes() {
-            return readFrom(scanJarPrefix);
-        }
-
-        public List<String> getUnScanJarPrefixes() {
-            return readFrom(unScanJarPrefix);
-        }
-
-        private List<String> readFrom(String data) {
-            List<String> prefixes = new ArrayList<>();
-            if (data != null) {
-                String[] strings = data.split(",");
-                for (String string : strings) {
-                    prefixes.add(string.trim());
-                }
-            }
-            return prefixes;
-        }
-    }
-
 
 }
